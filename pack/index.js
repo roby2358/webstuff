@@ -30,6 +30,8 @@ class Circle {
         this.occupiedBy = null;
         this.isStart1 = false;
         this.isStart2 = false;
+        this.pipCountForPlayer1 = null;
+        this.pipCountForPlayer2 = null;
     }
 
     contains(x, y) {
@@ -345,6 +347,10 @@ function canMoveTo(piece, targetCircleIndex) {
 }
 
 function movePiece(piece, targetCircleIndex) {
+    const player1PipCount = calculateTotalPipCount(1);
+    const player2PipCount = calculateTotalPipCount(2);
+    console.log(`Pip count: 1=${player1PipCount} 2=${player2PipCount}`);
+    
     const targetCircle = circles[targetCircleIndex];
     
     if (targetCircle.occupiedBy !== null) {
@@ -411,6 +417,77 @@ function findStartCircleIndex(player) {
         return circles.findIndex(c => c.isStart1);
     }
     return circles.findIndex(c => c.isStart2);
+}
+
+function calculateShortestPaths(targetCircleIndex) {
+    if (targetCircleIndex === -1) {
+        return null;
+    }
+    
+    const distances = new Array(circles.length).fill(-1);
+    const queue = [targetCircleIndex];
+    distances[targetCircleIndex] = 0;
+    
+    while (queue.length > 0) {
+        const currentIndex = queue.shift();
+        const currentDistance = distances[currentIndex];
+        
+        const neighbors = connections[currentIndex];
+        for (const neighborIndex of neighbors) {
+            if (distances[neighborIndex] === -1) {
+                distances[neighborIndex] = currentDistance + 1;
+                queue.push(neighborIndex);
+            }
+        }
+    }
+    
+    return distances;
+}
+
+function calculatePipCounts() {
+    const start1Index = findStartCircleIndex(1);
+    const start2Index = findStartCircleIndex(2);
+    
+    if (start1Index === -1 || start2Index === -1) {
+        return;
+    }
+    
+    const distancesToStart2 = calculateShortestPaths(start2Index);
+    const distancesToStart1 = calculateShortestPaths(start1Index);
+    
+    if (distancesToStart2 === null || distancesToStart1 === null) {
+        return;
+    }
+    
+    for (let i = 0; i < circles.length; i++) {
+        circles[i].pipCountForPlayer1 = distancesToStart2[i] === -1 ? null : distancesToStart2[i];
+        circles[i].pipCountForPlayer2 = distancesToStart1[i] === -1 ? null : distancesToStart1[i];
+    }
+}
+
+function calculateTotalPipCount(player) {
+    const piecesInHolding = pieces.filter(p => p.player === player && p.inHolding && !p.isRemoved).length;
+    const holdingPipCount = 10 * piecesInHolding;
+    
+    let boardPipCount = 0;
+    for (const piece of pieces) {
+        if (piece.player !== player || piece.isRemoved || piece.inHolding) {
+            continue;
+        }
+        
+        if (piece.circleIndex === null) {
+            continue;
+        }
+        
+        const circle = circles[piece.circleIndex];
+        if (player === 1 && circle.pipCountForPlayer1 !== null) {
+            boardPipCount += circle.pipCountForPlayer1;
+        } else if (player === 2 && circle.pipCountForPlayer2 !== null) {
+            boardPipCount += circle.pipCountForPlayer2;
+        }
+    }
+    
+    return holdingPipCount + boardPipCount;
 }
 
 function getAllValidMoves(player) {
@@ -695,6 +772,8 @@ function init() {
     player1Points = 0;
     player2Points = 0;
     gameWon = false;
+    
+    calculatePipCounts();
     
     updateHoldingAreas();
     updatePoints();
