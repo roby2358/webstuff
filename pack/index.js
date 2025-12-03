@@ -99,6 +99,8 @@ class Board {
         this.circles = [];
         this.connections = [];
         this.pieces = [];
+        this.currentPlayer = 1;
+        this.gameWon = false;
     }
 
     findStartCircleIndex(player) {
@@ -106,6 +108,99 @@ class Board {
             return this.circles.findIndex(c => c.isStart1);
         }
         return this.circles.findIndex(c => c.isStart2);
+    }
+
+    calculateTotalPipCount(player) {
+        const piecesInHolding = this.pieces.filter(p => p.player === player && p.inHolding && !p.isRemoved).length;
+        const holdingPipCount = 10 * piecesInHolding;
+        
+        let boardPipCount = 0;
+        for (const piece of this.pieces) {
+            if (piece.player !== player || piece.isRemoved || piece.inHolding) {
+                continue;
+            }
+            
+            if (piece.circleIndex === null) {
+                continue;
+            }
+            
+            const circle = this.circles[piece.circleIndex];
+            
+            const isOnOpponentStart = (player === 1 && circle.isStart2) || 
+                                     (player === 2 && circle.isStart1);
+            
+            if (isOnOpponentStart) {
+                boardPipCount += -100;
+            } else {
+                if (player === 1 && circle.pipCountForPlayer1 !== null) {
+                    boardPipCount += circle.pipCountForPlayer1;
+                } else if (player === 2 && circle.pipCountForPlayer2 !== null) {
+                    boardPipCount += circle.pipCountForPlayer2;
+                }
+            }
+        }
+        
+        return holdingPipCount + boardPipCount;
+    }
+
+    clone() {
+        const cloned = new Board();
+        
+        cloned.circles = this.circles.map(circle => {
+            const clonedCircle = new Circle(circle.x, circle.y, circle.radius);
+            clonedCircle.occupiedBy = null;
+            clonedCircle.isStart1 = circle.isStart1;
+            clonedCircle.isStart2 = circle.isStart2;
+            clonedCircle.pipCountForPlayer1 = circle.pipCountForPlayer1;
+            clonedCircle.pipCountForPlayer2 = circle.pipCountForPlayer2;
+            return clonedCircle;
+        });
+        
+        cloned.connections = this.connections.map(neighbors => [...neighbors]);
+        
+        cloned.pieces = this.pieces.map(piece => {
+            const clonedPiece = new Piece(piece.player, piece.id);
+            clonedPiece.circleIndex = piece.circleIndex;
+            clonedPiece.inHolding = piece.inHolding;
+            clonedPiece.isRemoved = piece.isRemoved;
+            return clonedPiece;
+        });
+        
+        for (let i = 0; i < cloned.pieces.length; i++) {
+            const piece = cloned.pieces[i];
+            if (piece.circleIndex !== null && !piece.inHolding && !piece.isRemoved) {
+                cloned.circles[piece.circleIndex].occupiedBy = i;
+            }
+        }
+        
+        cloned.currentPlayer = this.currentPlayer;
+        cloned.gameWon = this.gameWon;
+        
+        return cloned;
+    }
+
+    applyMove(pieceIndex, targetCircleIndex) {
+        const piece = this.pieces[pieceIndex];
+        const targetCircle = this.circles[targetCircleIndex];
+        
+        if (targetCircle.occupiedBy !== null) {
+            const capturedPiece = this.pieces[targetCircle.occupiedBy];
+            if (capturedPiece.player !== piece.player) {
+                if (capturedPiece.circleIndex !== null) {
+                    this.circles[capturedPiece.circleIndex].occupiedBy = null;
+                }
+                capturedPiece.circleIndex = null;
+                capturedPiece.inHolding = true;
+            }
+        }
+        
+        if (piece.circleIndex !== null) {
+            this.circles[piece.circleIndex].occupiedBy = null;
+        }
+        
+        piece.circleIndex = targetCircleIndex;
+        piece.inHolding = false;
+        this.circles[targetCircleIndex].occupiedBy = pieceIndex;
     }
 }
 
@@ -311,14 +406,11 @@ class BoardMaker {
         BoardMaker.findStartCircles(board.circles);
         board.pieces = BoardMaker.initializePieces();
         BoardMaker.calculatePipCounts(board.circles, board.connections);
+        board.currentPlayer = 1;
+        board.gameWon = false;
         return board;
     }
 }
-
-let currentPlayer = 1;
-let player1Points = 0;
-let player2Points = 0;
-let gameWon = false;
 
 let board;
 const view = new View(ctx, { GRID_SIZE, RENDER_RADIUS });
@@ -387,11 +479,15 @@ function canMoveTo(piece, targetCircleIndex) {
             return false;
         }
         
-        if (piece.player === 1 && targetCircle.isStart1) {
+        if (targetCircleIndex === startCircleIndex) {
             return false;
         }
-        if (piece.player === 2 && targetCircle.isStart2) {
-            return false;
+        
+        if (targetCircle.occupiedBy !== null) {
+            const occupyingPiece = board.pieces[targetCircle.occupiedBy];
+            if (occupyingPiece.player !== piece.player) {
+                return false;
+            }
         }
         
         const neighbors = board.connections[startCircleIndex];
@@ -417,64 +513,37 @@ function canMoveTo(piece, targetCircleIndex) {
 }
 
 function movePiece(piece, targetCircleIndex) {
-    const player1PipCount = calculateTotalPipCount(1);
-    const player2PipCount = calculateTotalPipCount(2);
+    const player1PipCount = board.calculateTotalPipCount(1);
+    const player2PipCount = board.calculateTotalPipCount(2);
     console.log(`Pip count: 1=${player1PipCount} 2=${player2PipCount}`);
     
+    const pieceIndex = board.pieces.indexOf(piece);
     const targetCircle = board.circles[targetCircleIndex];
-    
-    if (targetCircle.occupiedBy !== null) {
-        const capturedPiece = board.pieces[targetCircle.occupiedBy];
-        if (capturedPiece.player !== piece.player) {
-            if (capturedPiece.circleIndex !== null) {
-                board.circles[capturedPiece.circleIndex].occupiedBy = null;
-            }
-            capturedPiece.circleIndex = null;
-            capturedPiece.inHolding = true;
-        }
-    }
-    
     const isOpponentStart = (piece.player === 1 && targetCircle.isStart2) || 
                            (piece.player === 2 && targetCircle.isStart1);
     
+    board.applyMove(pieceIndex, targetCircleIndex);
+    
     if (isOpponentStart) {
-        if (piece.circleIndex !== null) {
-            board.circles[piece.circleIndex].occupiedBy = null;
-        }
-        piece.circleIndex = null;
-        piece.inHolding = false;
-        piece.isRemoved = true;
-        
         if (view.selectedPiece === piece) {
             view.selectedPiece = null;
         }
         
+        board.gameWon = true;
+        const indicator = document.getElementById('player-indicator');
         if (piece.player === 1) {
-            player1Points++;
+            indicator.textContent = 'Player 1 Wins!';
+            indicator.className = '';
         } else {
-            player2Points++;
+            indicator.textContent = 'Player 2 Wins!';
+            indicator.className = 'player2';
         }
-        
-        updatePoints();
-        checkWinCondition();
         
         updateHoldingAreas();
         render(view);
         
-        if (!gameWon) {
-            switchPlayer();
-        }
-        
         return true;
     } else {
-        if (piece.circleIndex !== null) {
-            board.circles[piece.circleIndex].occupiedBy = null;
-        }
-        
-        piece.circleIndex = targetCircleIndex;
-        piece.inHolding = false;
-        board.circles[targetCircleIndex].occupiedBy = board.pieces.indexOf(piece);
-        
         updateHoldingAreas();
         render(view);
         
@@ -483,38 +552,17 @@ function movePiece(piece, targetCircleIndex) {
 }
 
 
-function calculateTotalPipCount(player) {
-    const piecesInHolding = board.pieces.filter(p => p.player === player && p.inHolding && !p.isRemoved).length;
-    const holdingPipCount = 10 * piecesInHolding;
-    
-    let boardPipCount = 0;
-    for (const piece of board.pieces) {
-        if (piece.player !== player || piece.isRemoved || piece.inHolding) {
-            continue;
-        }
-        
-        if (piece.circleIndex === null) {
-            continue;
-        }
-        
-        const circle = board.circles[piece.circleIndex];
-        if (player === 1 && circle.pipCountForPlayer1 !== null) {
-            boardPipCount += circle.pipCountForPlayer1;
-        } else if (player === 2 && circle.pipCountForPlayer2 !== null) {
-            boardPipCount += circle.pipCountForPlayer2;
-        }
-    }
-    
-    return holdingPipCount + boardPipCount;
-}
 
 function getAllValidMoves(player) {
     const validMoves = [];
     
-    for (const piece of board.pieces) {
+    for (let pieceIndex = 0; pieceIndex < board.pieces.length; pieceIndex++) {
+        const piece = board.pieces[pieceIndex];
         if (piece.player !== player || piece.isRemoved) {
             continue;
         }
+        
+        let candidateTargets = [];
         
         if (piece.inHolding) {
             const startCircleIndex = board.findStartCircleIndex(player);
@@ -523,7 +571,7 @@ function getAllValidMoves(player) {
                 const neighbors = board.connections[startCircleIndex];
                 for (const neighborIndex of neighbors) {
                     if (canMoveTo(piece, neighborIndex)) {
-                        validMoves.push({ piece, targetCircleIndex: neighborIndex });
+                        candidateTargets.push(neighborIndex);
                     }
                 }
             }
@@ -533,9 +581,23 @@ function getAllValidMoves(player) {
             
             for (const neighborIndex of neighbors) {
                 if (canMoveTo(piece, neighborIndex)) {
-                    validMoves.push({ piece, targetCircleIndex: neighborIndex });
+                    candidateTargets.push(neighborIndex);
                 }
             }
+        }
+        
+        for (const targetIndex of candidateTargets) {
+            const clonedBoard = board.clone();
+            clonedBoard.applyMove(pieceIndex, targetIndex);
+            const player1PipCount = clonedBoard.calculateTotalPipCount(1);
+            const player2PipCount = clonedBoard.calculateTotalPipCount(2);
+            const pipCount = player2PipCount - player1PipCount;
+            
+            validMoves.push({ 
+                piece, 
+                targetIndex, 
+                pipCount 
+            });
         }
     }
     
@@ -543,7 +605,7 @@ function getAllValidMoves(player) {
 }
 
 function aiMove() {
-    if (gameWon) {
+    if (board.gameWon) {
         return;
     }
     
@@ -554,58 +616,52 @@ function aiMove() {
         return;
     }
     
-    const randomMove = validMoves[Math.floor(Math.random() * validMoves.length)];
-    const pieceRemoved = movePiece(randomMove.piece, randomMove.targetCircleIndex);
+    const minPipCount = Math.min(...validMoves.map(move => move.pipCount));
+    const weights = validMoves.map(move => {
+        const adjustedPipCount = move.pipCount - minPipCount + 1;
+        const squared = adjustedPipCount * adjustedPipCount;
+        return 1 / squared;
+    });
+    
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+    const probabilities = weights.map(weight => weight / totalWeight);
+    
+    const random = Math.random();
+    let cumulativeProbability = 0;
+    let selectedMove = null;
+    
+    for (let i = 0; i < validMoves.length; i++) {
+        cumulativeProbability += probabilities[i];
+        if (random <= cumulativeProbability) {
+            selectedMove = validMoves[i];
+            break;
+        }
+    }
+    
+    if (selectedMove === null) {
+        selectedMove = validMoves[validMoves.length - 1];
+    }
+    
+    const pieceRemoved = movePiece(selectedMove.piece, selectedMove.targetIndex);
     if (!pieceRemoved) {
         switchPlayer();
     }
 }
 
-function updatePoints() {
-    const player1PointsEl = document.getElementById('player1-points');
-    const player2PointsEl = document.getElementById('player2-points');
-    if (player1PointsEl) {
-        player1PointsEl.textContent = `Points: ${player1Points}`;
-    }
-    if (player2PointsEl) {
-        player2PointsEl.textContent = `Points: ${player2Points}`;
-    }
-}
-
-function checkWinCondition() {
-    const player1PiecesRemaining = board.pieces.filter(p => p.player === 1 && !p.isRemoved).length;
-    const player2PiecesRemaining = board.pieces.filter(p => p.player === 2 && !p.isRemoved).length;
-    
-    if (player1PiecesRemaining === 0) {
-        gameWon = true;
-        const indicator = document.getElementById('player-indicator');
-        indicator.textContent = 'Player 1 Wins!';
-        indicator.className = '';
-        return;
-    }
-    
-    if (player2PiecesRemaining === 0) {
-        gameWon = true;
-        const indicator = document.getElementById('player-indicator');
-        indicator.textContent = 'Player 2 Wins!';
-        indicator.className = 'player2';
-        return;
-    }
-}
 
 function switchPlayer() {
-    if (gameWon) {
+    if (board.gameWon) {
         return;
     }
     
     view.selectedPiece = null;
     view.highlightedStartCircle = null;
-    currentPlayer = currentPlayer === 1 ? 2 : 1;
+    board.currentPlayer = board.currentPlayer === 1 ? 2 : 1;
     const indicator = document.getElementById('player-indicator');
-    indicator.textContent = `Player ${currentPlayer}`;
-    indicator.className = currentPlayer === 1 ? '' : 'player2';
+    indicator.textContent = `Player ${board.currentPlayer}`;
+    indicator.className = board.currentPlayer === 1 ? '' : 'player2';
     
-    if (currentPlayer === 2) {
+    if (board.currentPlayer === 2) {
         setTimeout(() => {
             aiMove();
         }, 500);
@@ -648,15 +704,14 @@ function getValidMovesFromStartCircle(startCircleIndex) {
         if (neighbor.occupiedBy === null) {
             return true;
         }
-        const occupyingPiece = board.pieces[neighbor.occupiedBy];
-        return occupyingPiece.player !== playerForStart;
+        return false;
     });
 }
 
 function handleStartCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex) {
     const playerForStart = getPlayerForStartCircle(clickedCircle);
     
-    if (playerForStart !== currentPlayer) {
+    if (playerForStart !== board.currentPlayer) {
         view.highlightedStartCircle = null;
         render(view);
         return;
@@ -664,7 +719,7 @@ function handleStartCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex
     
     if (clickedCircle.occupiedBy !== null) {
         const piece = board.pieces[clickedCircle.occupiedBy];
-        if (piece.player === currentPlayer) {
+        if (piece.player === board.currentPlayer) {
             view.selectedPiece = piece;
             view.highlightedStartCircle = null;
             render(view);
@@ -680,10 +735,11 @@ function handleStartCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex
     
     if (view.highlightedStartCircle === clickedCircleIndex) {
         view.highlightedStartCircle = null;
+        render(view);
     } else {
         view.highlightedStartCircle = clickedCircleIndex;
+        render(view);
     }
-    render(view);
 }
 
 function handleCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex) {
@@ -708,7 +764,7 @@ function handleCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex) {
     
     if (clickedCircle.occupiedBy !== null) {
         const piece = board.pieces[clickedCircle.occupiedBy];
-        if (piece.player === currentPlayer) {
+        if (piece.player === board.currentPlayer) {
             view.selectedPiece = piece;
             view.highlightedStartCircle = null;
             render(view);
@@ -726,7 +782,7 @@ function handleCircleClickWhenPieceSelected(clickedCircle, clickedCircleIndex) {
             clearSelection();
             return;
         }
-        if (piece.player === currentPlayer) {
+        if (piece.player === board.currentPlayer) {
             view.selectedPiece = piece;
             view.highlightedStartCircle = null;
             render(view);
@@ -747,11 +803,11 @@ function handleCircleClickWhenPieceSelected(clickedCircle, clickedCircleIndex) {
 }
 
 canvas.addEventListener('click', (e) => {
-    if (gameWon) {
+    if (board.gameWon) {
         return;
     }
     
-    if (currentPlayer !== 1) {
+    if (board.currentPlayer !== 1) {
         return;
     }
     
@@ -785,6 +841,5 @@ function init(boardParam) {
     board = boardParam;
     
     updateHoldingAreas();
-    updatePoints();
     render(view);
 }
