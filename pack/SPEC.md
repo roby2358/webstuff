@@ -27,8 +27,8 @@
 ## Game Pieces
 
 ### Piece Initialization
-- MUST create exactly 5 pieces per player (10 total pieces)
-- MUST assign each piece a unique ID within its player's set (0-4)
+- MUST create exactly 3 pieces per player (6 total pieces)
+- MUST assign each piece a unique ID within its player's set (0-2)
 - MUST initialize all pieces in holding state (`inHolding = true`)
 - MUST track which player owns each piece (`player` property: 1 or 2)
 

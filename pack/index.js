@@ -5,7 +5,7 @@ const GRID_SIZE = 800;
 const MIN_RADIUS = 20;
 const MAX_RADIUS = 200;
 const NUM_CIRCLES = 30;
-const PIECES_PER_PLAYER = 5;
+const PIECES_PER_PLAYER = 3;
 const RENDER_RADIUS = 20;
 const MAX_EDGE_DISTANCE = 300;
 const LARGE_DISTANCE = 1000000;
@@ -185,13 +185,14 @@ class Board {
         
         if (targetCircle.occupiedBy !== null) {
             const capturedPiece = this.pieces[targetCircle.occupiedBy];
-            if (capturedPiece.player !== piece.player) {
-                if (capturedPiece.circleIndex !== null) {
-                    this.circles[capturedPiece.circleIndex].occupiedBy = null;
-                }
-                capturedPiece.circleIndex = null;
-                capturedPiece.inHolding = true;
+            if (capturedPiece.player === piece.player) {
+                return;
             }
+            if (capturedPiece.circleIndex !== null) {
+                this.circles[capturedPiece.circleIndex].occupiedBy = null;
+            }
+            capturedPiece.circleIndex = null;
+            capturedPiece.inHolding = true;
         }
         
         if (piece.circleIndex !== null) {
@@ -466,13 +467,6 @@ function canMoveTo(piece, targetCircleIndex) {
     
     const targetCircle = board.circles[targetCircleIndex];
     
-    if (targetCircle.occupiedBy !== null) {
-        const occupyingPiece = board.pieces[targetCircle.occupiedBy];
-        if (occupyingPiece.player === piece.player) {
-            return false;
-        }
-    }
-    
     if (piece.inHolding) {
         const startCircleIndex = board.findStartCircleIndex(piece.player);
         if (startCircleIndex === -1) {
@@ -484,10 +478,7 @@ function canMoveTo(piece, targetCircleIndex) {
         }
         
         if (targetCircle.occupiedBy !== null) {
-            const occupyingPiece = board.pieces[targetCircle.occupiedBy];
-            if (occupyingPiece.player !== piece.player) {
-                return false;
-            }
+            return false;
         }
         
         const neighbors = board.connections[startCircleIndex];
@@ -506,7 +497,35 @@ function canMoveTo(piece, targetCircleIndex) {
     const neighbors = board.connections[currentCircleIndex];
     
     if (neighbors.includes(targetCircleIndex)) {
+        if (targetCircle.occupiedBy !== null) {
+            const occupyingPiece = board.pieces[targetCircle.occupiedBy];
+            if (occupyingPiece.player === piece.player) {
+                return false;
+            }
+        }
         return true;
+    }
+    
+    for (const intermediateIndex of neighbors) {
+        const intermediateCircle = board.circles[intermediateIndex];
+        
+        if (intermediateCircle.occupiedBy !== null) {
+            const intermediatePiece = board.pieces[intermediateCircle.occupiedBy];
+            if (intermediatePiece.player !== piece.player) {
+                continue;
+            }
+        }
+        
+        const intermediateNeighbors = board.connections[intermediateIndex];
+        if (intermediateNeighbors.includes(targetCircleIndex)) {
+            if (targetCircle.occupiedBy === null) {
+                return true;
+            }
+            const targetOccupyingPiece = board.pieces[targetCircle.occupiedBy];
+            if (targetOccupyingPiece.player === piece.player) {
+                return false;
+            }
+        }
     }
     
     return false;
@@ -524,11 +543,12 @@ function movePiece(piece, targetCircleIndex) {
     
     board.applyMove(pieceIndex, targetCircleIndex);
     
+    if (view.selectedPiece === piece) {
+        view.selectedPiece = null;
+    }
+    view.highlightedStartCircle = null;
+    
     if (isOpponentStart) {
-        if (view.selectedPiece === piece) {
-            view.selectedPiece = null;
-        }
-        
         board.gameWon = true;
         const indicator = document.getElementById('player-indicator');
         if (piece.player === 1) {
@@ -582,6 +602,20 @@ function getAllValidMoves(player) {
             for (const neighborIndex of neighbors) {
                 if (canMoveTo(piece, neighborIndex)) {
                     candidateTargets.push(neighborIndex);
+                }
+            }
+            
+            for (const intermediateIndex of neighbors) {
+                const intermediateNeighbors = board.connections[intermediateIndex];
+                for (const targetIndex of intermediateNeighbors) {
+                    if (targetIndex === currentCircleIndex) {
+                        continue;
+                    }
+                    if (canMoveTo(piece, targetIndex)) {
+                        if (!candidateTargets.includes(targetIndex)) {
+                            candidateTargets.push(targetIndex);
+                        }
+                    }
                 }
             }
         }
@@ -698,13 +732,15 @@ function getValidMovesFromStartCircle(startCircleIndex) {
     if (playerForStart === null) {
         return [];
     }
+    
+    const pieceInHolding = board.pieces.find(p => p.player === playerForStart && p.inHolding && !p.isRemoved);
+    if (!pieceInHolding) {
+        return [];
+    }
+    
     const neighbors = board.connections[startCircleIndex];
     return neighbors.filter(neighborIndex => {
-        const neighbor = board.circles[neighborIndex];
-        if (neighbor.occupiedBy === null) {
-            return true;
-        }
-        return false;
+        return canMoveTo(pieceInHolding, neighborIndex);
     });
 }
 
@@ -728,6 +764,13 @@ function handleStartCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex
     }
     
     if (!hasPiecesInHolding(playerForStart)) {
+        view.highlightedStartCircle = null;
+        render(view);
+        return;
+    }
+    
+    const validMoves = getValidMovesFromStartCircle(clickedCircleIndex);
+    if (validMoves.length === 0) {
         view.highlightedStartCircle = null;
         render(view);
         return;
@@ -791,9 +834,8 @@ function handleCircleClickWhenPieceSelected(clickedCircle, clickedCircleIndex) {
     }
     
     if (canMoveTo(view.selectedPiece, clickedCircleIndex)) {
-        const pieceRemoved = movePiece(view.selectedPiece, clickedCircleIndex);
-        view.selectedPiece = null;
-        view.highlightedStartCircle = null;
+        const selectedPiece = view.selectedPiece;
+        const pieceRemoved = movePiece(selectedPiece, clickedCircleIndex);
         if (!pieceRemoved) {
             switchPlayer();
         }

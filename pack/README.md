@@ -6,7 +6,7 @@ Turn-based strategy game: move pieces across connected circles to reach your opp
 
 - **Player 1 (Blue)**: Human, starts near upper-left
 - **Player 2 (Red)**: AI, starts near lower-right
-- 5 pieces per player, start in holding
+- 3 pieces per player, start in holding
 - **From holding**: Click start circle, then click a connected neighbor to place
 - **On board**: Click piece, then click connected neighbor to move
 - Capture opponent pieces by moving onto them

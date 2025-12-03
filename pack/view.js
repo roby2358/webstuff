@@ -126,7 +126,16 @@ class View {
         this.ctx.fill();
     }
 
-    renderValidMovesForDraggedPiece() {
+    getPieceOnCircle(circleIndex) {
+        for (const piece of this.pieces) {
+            if (!piece.isRemoved && !piece.inHolding && piece.circleIndex === circleIndex) {
+                return piece;
+            }
+        }
+        return null;
+    }
+
+    renderValidMovesForSelectedPiece() {
         if (this.selectedPiece === null || this.selectedPiece.inHolding || this.selectedPiece.isRemoved) {
             return;
         }
@@ -141,17 +150,65 @@ class View {
             return;
         }
         
+        const validTargets = new Set();
+        
         for (const neighborIndex of neighbors) {
             const neighbor = this.circles[neighborIndex];
-            if (neighbor.occupiedBy === null) {
-                this.renderValidMoveHighlight(neighbor);
+            
+            if (this.selectedPiece.player === 1 && neighbor.isStart1) {
+                continue;
+            }
+            if (this.selectedPiece.player === 2 && neighbor.isStart2) {
+                continue;
+            }
+            
+            const occupyingPiece = this.getPieceOnCircle(neighborIndex);
+            
+            if (occupyingPiece === null) {
+                validTargets.add(neighborIndex);
             } else {
-                const occupyingPiece = this.pieces[neighbor.occupiedBy];
                 if (occupyingPiece.player !== this.selectedPiece.player) {
-                    this.renderValidMoveHighlight(neighbor);
+                    validTargets.add(neighborIndex);
+                }
+            }
+            
+            if (occupyingPiece !== null && occupyingPiece.player !== this.selectedPiece.player) {
+                continue;
+            }
+            
+            const intermediateNeighbors = this.connections[neighborIndex];
+            for (const targetIndex of intermediateNeighbors) {
+                if (targetIndex === currentCircleIndex) {
+                    continue;
+                }
+                const targetCircle = this.circles[targetIndex];
+                
+                if (this.selectedPiece.player === 1 && targetCircle.isStart1) {
+                    continue;
+                }
+                if (this.selectedPiece.player === 2 && targetCircle.isStart2) {
+                    continue;
+                }
+                
+                const targetOccupyingPiece = this.getPieceOnCircle(targetIndex);
+                if (targetOccupyingPiece === null) {
+                    validTargets.add(targetIndex);
                 }
             }
         }
+        
+        for (const targetIndex of validTargets) {
+            this.renderValidMoveHighlight(this.circles[targetIndex]);
+        }
+    }
+
+    getPieceInHolding(player) {
+        for (const piece of this.pieces) {
+            if (piece.player === player && piece.inHolding && !piece.isRemoved) {
+                return piece;
+            }
+        }
+        return null;
     }
 
     renderHighlightedStartCircle() {
@@ -161,20 +218,34 @@ class View {
         
         const startCircle = this.circles[this.highlightedStartCircle];
         if (startCircle.occupiedBy === null) {
-            this.renderCircleHighlight(startCircle);
-            
             const playerForStart = startCircle.isStart1 ? 1 : 2;
+            const pieceInHolding = this.getPieceInHolding(playerForStart);
+            
+            if (pieceInHolding === null) {
+                return;
+            }
+            
             const neighbors = this.connections[this.highlightedStartCircle];
+            let hasValidMoves = false;
+            
             for (const neighborIndex of neighbors) {
-                const neighbor = this.circles[neighborIndex];
-                if (neighbor.occupiedBy === null) {
-                    this.renderValidMoveHighlight(neighbor);
-                } else {
-                    const occupyingPiece = this.pieces[neighbor.occupiedBy];
-                    if (occupyingPiece.player !== playerForStart) {
-                        this.renderValidMoveHighlight(neighbor);
-                    }
+                if (neighborIndex === this.highlightedStartCircle) {
+                    continue;
                 }
+                
+                const neighbor = this.circles[neighborIndex];
+                const occupyingPiece = this.getPieceOnCircle(neighborIndex);
+                
+                if (occupyingPiece !== null) {
+                    continue;
+                }
+                
+                hasValidMoves = true;
+                this.renderValidMoveHighlight(neighbor);
+            }
+            
+            if (hasValidMoves) {
+                this.renderCircleHighlight(startCircle);
             }
         }
     }
@@ -201,8 +272,10 @@ class View {
             }
         }
         
-        this.renderValidMovesForDraggedPiece();
+        this.renderValidMovesForSelectedPiece();
         this.renderHighlightedStartCircle();
     }
 }
+
+
 

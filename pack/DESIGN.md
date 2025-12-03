@@ -26,30 +26,48 @@ Each circle has a pip count value for each player, calculated as the shortest pa
 
 ## Pieces
 
-Each player has 5 pieces that start in a holding area. Pieces are represented as smaller circles (20px radius) colored to match their player. Pieces can be:
+Each player has 3 pieces that start in a holding area. Pieces are represented as smaller circles (20px radius) colored to match their player. Pieces can be:
 - **In holding**: Waiting to be placed on the board
 - **On board**: Occupying a circle
 - **Removed**: Captured and sent back to holding (not currently used, but tracked)
 
 ## Movement Rules
 
-### From Holding Area
+### Bearing In (From Holding Area)
 
-- Pieces in holding cannot be placed directly on their start circle
-- Pieces can only be placed on circles that are directly connected (neighbors) to their player's start circle
+- Pieces in holding can be placed on any circle that is directly connected (a neighbor) to their player's start circle
+- Pieces cannot be placed directly on their start circle
 - Pieces cannot capture their own pieces when placing from holding
 - Click your start circle to highlight it, then click a valid neighbor circle to place a piece
 
-### On Board
+### On Board Movement
 
-- Pieces can move one space to a directly connected neighbor circle
-- Pieces cannot move to their own start circle
-- Pieces can capture opponent pieces by moving to an occupied circle (captured pieces are sent back to holding)
+Pieces on the board can make the following moves:
+
+1. **Move to a neighbor** (1-space move)
+   - Move to any directly connected neighbor circle that is empty
+   - Cannot move to your own start circle
+
+2. **Move to a neighbor's neighbor** (2-space leapfrog move)
+   - Jump over any piece (your own or opponent's) to land on an empty circle
+   - Must jump over exactly one piece to reach the destination
+   - Cannot capture pieces with a 2-space move (must land on empty circle)
+
+3. **Capture opponent piece** (1-space move)
+   - Move to a neighbor circle occupied by an opponent's piece
+   - The opponent's piece is captured and returned to their holding area
+   - Cannot capture your own pieces
+
+### Restrictions
+
 - Pieces cannot move to circles occupied by their own pieces
+- Pieces cannot move to their own start circle
+- 2-space moves must land on an empty circle (no capture via leapfrog)
 
 ### Move Validation
 
 - Valid move destinations are highlighted in yellow when a piece is selected
+- All neighbor spots (1-space) and all valid 2-space destinations are highlighted
 - Click a piece to select it, then click a valid destination to move
 - Clicking an empty area or invalid destination clears the selection
 
