@@ -10,18 +10,6 @@ const RENDER_RADIUS = 20;
 const MAX_EDGE_DISTANCE = 300;
 const LARGE_DISTANCE = 1000000;
 
-let circles = [];
-let connections = [];
-let pieces = [];
-let currentPlayer = 1;
-let selectedPiece = null;
-let highlightedStartCircle = null;
-let player1Points = 0;
-let player2Points = 0;
-let gameWon = false;
-
-const view = new View(ctx, { GRID_SIZE, RENDER_RADIUS });
-
 class Circle {
     constructor(x, y, radius) {
         this.x = x;
@@ -106,156 +94,238 @@ class Piece {
     }
 }
 
-function random(min, max) {
-    return Math.random() * (max - min) + min;
-}
-
-function checkOverlapsWithExisting(newCircle, existingCircles) {
-    for (const existing of existingCircles) {
-        if (newCircle.overlaps(existing, 5)) {
-            return true;
-        }
+class Board {
+    constructor() {
+        this.circles = [];
+        this.connections = [];
+        this.pieces = [];
     }
-    return false;
-}
 
-function generateCircles() {
-    const circles = [];
-    const attempts = 1000;
-    
-    for (let i = 0; i < NUM_CIRCLES; i++) {
-        let placed = false;
-        let attemptsLeft = attempts;
-        
-        while (!placed && attemptsLeft > 0) {
-            const radius = random(MIN_RADIUS, MAX_RADIUS);
-            const x = random(radius, GRID_SIZE - radius);
-            const y = random(radius, GRID_SIZE - radius);
-            
-            const newCircle = new Circle(x, y, radius);
-            
-            if (!checkOverlapsWithExisting(newCircle, circles)) {
-                circles.push(newCircle);
-                placed = true;
-            }
-            
-            attemptsLeft--;
+    findStartCircleIndex(player) {
+        if (player === 1) {
+            return this.circles.findIndex(c => c.isStart1);
         }
+        return this.circles.findIndex(c => c.isStart2);
     }
-    
-    return circles;
 }
 
-function generateCandidateEdges(circles, maxDistance) {
-    const candidateEdges = [];
-    
-    for (let i = 0; i < circles.length; i++) {
-        for (let j = i + 1; j < circles.length; j++) {
-            const dist = circles[i].distance(circles[j]);
-            if (dist <= maxDistance) {
-                candidateEdges.push(new Edge(i, j, circles[i], circles[j]));
+class BoardMaker {
+    static random(min, max) {
+        return Math.random() * (max - min) + min;
+    }
+
+    static checkOverlapsWithExisting(newCircle, existingCircles) {
+        for (const existing of existingCircles) {
+            if (newCircle.overlaps(existing, 5)) {
+                return true;
             }
         }
+        return false;
     }
-    
-    return candidateEdges;
-}
 
-function checkIntersectionAndUpdate(finalEdges, newEdge) {
-    let shouldAdd = true;
-    let indexToRemove = -1;
-    
-    for (let i = 0; i < finalEdges.length; i++) {
-        const existingEdge = finalEdges[i];
+    static generateCircles() {
+        const circles = [];
+        const attempts = 1000;
         
-        if (newEdge.intersects(existingEdge)) {
-            if (newEdge.length < existingEdge.length) {
-                indexToRemove = i;
-            } else {
-                shouldAdd = false;
-                break;
+        for (let i = 0; i < NUM_CIRCLES; i++) {
+            let placed = false;
+            let attemptsLeft = attempts;
+            
+            while (!placed && attemptsLeft > 0) {
+                const radius = BoardMaker.random(MIN_RADIUS, MAX_RADIUS);
+                const x = BoardMaker.random(radius, GRID_SIZE - radius);
+                const y = BoardMaker.random(radius, GRID_SIZE - radius);
+                
+                const newCircle = new Circle(x, y, radius);
+                
+                if (!BoardMaker.checkOverlapsWithExisting(newCircle, circles)) {
+                    circles.push(newCircle);
+                    placed = true;
+                }
+                
+                attemptsLeft--;
             }
         }
+        
+        return circles;
     }
-    
-    return { shouldAdd, indexToRemove };
+
+    static generateCandidateEdges(circles, maxDistance) {
+        const candidateEdges = [];
+        
+        for (let i = 0; i < circles.length; i++) {
+            for (let j = i + 1; j < circles.length; j++) {
+                const dist = circles[i].distance(circles[j]);
+                if (dist <= maxDistance) {
+                    candidateEdges.push(new Edge(i, j, circles[i], circles[j]));
+                }
+            }
+        }
+        
+        return candidateEdges;
+    }
+
+    static checkIntersectionAndUpdate(finalEdges, newEdge) {
+        let shouldAdd = true;
+        let indexToRemove = -1;
+        
+        for (let i = 0; i < finalEdges.length; i++) {
+            const existingEdge = finalEdges[i];
+            
+            if (newEdge.intersects(existingEdge)) {
+                if (newEdge.length < existingEdge.length) {
+                    indexToRemove = i;
+                } else {
+                    shouldAdd = false;
+                    break;
+                }
+            }
+        }
+        
+        return { shouldAdd, indexToRemove };
+    }
+
+    static buildConnections(circles) {
+        const candidateEdges = BoardMaker.generateCandidateEdges(circles, MAX_EDGE_DISTANCE);
+        
+        candidateEdges.sort((a, b) => a.length - b.length);
+        
+        const finalEdges = [];
+        
+        for (const newEdge of candidateEdges) {
+            const { shouldAdd, indexToRemove } = BoardMaker.checkIntersectionAndUpdate(finalEdges, newEdge);
+            
+            if (indexToRemove !== -1) {
+                finalEdges.splice(indexToRemove, 1);
+            }
+            
+            if (shouldAdd) {
+                finalEdges.push(newEdge);
+            }
+        }
+        
+        const connections = [];
+        for (let i = 0; i < circles.length; i++) {
+            connections.push([]);
+        }
+        
+        for (const edge of finalEdges) {
+            connections[edge.from].push(edge.to);
+            connections[edge.to].push(edge.from);
+        }
+        
+        return connections;
+    }
+
+    static findStartCircles(circles) {
+        let start1Index = 0;
+        let start2Index = 0;
+        let minDistToUpperLeft = LARGE_DISTANCE;
+        let minDistToLowerRight = LARGE_DISTANCE;
+        
+        for (let i = 0; i < circles.length; i++) {
+            const circle = circles[i];
+            const distToUpperLeft = circle.distanceToPointSquared(0, 0);
+            const distToLowerRight = circle.distanceToPointSquared(GRID_SIZE, GRID_SIZE);
+            
+            if (distToUpperLeft < minDistToUpperLeft) {
+                minDistToUpperLeft = distToUpperLeft;
+                start1Index = i;
+            }
+            
+            if (distToLowerRight < minDistToLowerRight) {
+                minDistToLowerRight = distToLowerRight;
+                start2Index = i;
+            }
+        }
+        
+        circles[start1Index].isStart1 = true;
+        circles[start2Index].isStart2 = true;
+        
+        return { start1Index, start2Index };
+    }
+
+    static initializePieces() {
+        const pieces = [];
+        
+        for (let player = 1; player <= 2; player++) {
+            for (let i = 0; i < PIECES_PER_PLAYER; i++) {
+                const piece = new Piece(player, i);
+                pieces.push(piece);
+            }
+        }
+        
+        return pieces;
+    }
+
+    static calculateShortestPaths(circles, connections, targetCircleIndex) {
+        if (targetCircleIndex === -1) {
+            return null;
+        }
+        
+        const distances = new Array(circles.length).fill(-1);
+        const queue = [targetCircleIndex];
+        distances[targetCircleIndex] = 0;
+        
+        while (queue.length > 0) {
+            const currentIndex = queue.shift();
+            const currentDistance = distances[currentIndex];
+            
+            const neighbors = connections[currentIndex];
+            for (const neighborIndex of neighbors) {
+                if (distances[neighborIndex] === -1) {
+                    distances[neighborIndex] = currentDistance + 1;
+                    queue.push(neighborIndex);
+                }
+            }
+        }
+        
+        return distances;
+    }
+
+    static calculatePipCounts(circles, connections) {
+        const start1Index = circles.findIndex(c => c.isStart1);
+        const start2Index = circles.findIndex(c => c.isStart2);
+        
+        if (start1Index === -1 || start2Index === -1) {
+            return;
+        }
+        
+        const distancesToStart2 = BoardMaker.calculateShortestPaths(circles, connections, start2Index);
+        const distancesToStart1 = BoardMaker.calculateShortestPaths(circles, connections, start1Index);
+        
+        if (distancesToStart2 === null || distancesToStart1 === null) {
+            return;
+        }
+        
+        for (let i = 0; i < circles.length; i++) {
+            circles[i].pipCountForPlayer1 = distancesToStart2[i] === -1 ? null : distancesToStart2[i];
+            circles[i].pipCountForPlayer2 = distancesToStart1[i] === -1 ? null : distancesToStart1[i];
+        }
+    }
+
+    static create() {
+        const board = new Board();
+        board.circles = BoardMaker.generateCircles();
+        board.connections = BoardMaker.buildConnections(board.circles);
+        BoardMaker.findStartCircles(board.circles);
+        board.pieces = BoardMaker.initializePieces();
+        BoardMaker.calculatePipCounts(board.circles, board.connections);
+        return board;
+    }
 }
 
-function buildConnections() {
-    const candidateEdges = generateCandidateEdges(circles, MAX_EDGE_DISTANCE);
-    
-    candidateEdges.sort((a, b) => a.length - b.length);
-    
-    const finalEdges = [];
-    
-    for (const newEdge of candidateEdges) {
-        const { shouldAdd, indexToRemove } = checkIntersectionAndUpdate(finalEdges, newEdge);
-        
-        if (indexToRemove !== -1) {
-            finalEdges.splice(indexToRemove, 1);
-        }
-        
-        if (shouldAdd) {
-            finalEdges.push(newEdge);
-        }
-    }
-    
-    const connections = [];
-    for (let i = 0; i < circles.length; i++) {
-        connections.push([]);
-    }
-    
-    for (const edge of finalEdges) {
-        connections[edge.from].push(edge.to);
-        connections[edge.to].push(edge.from);
-    }
-    
-    return connections;
-}
+let currentPlayer = 1;
+let player1Points = 0;
+let player2Points = 0;
+let gameWon = false;
 
-function findStartCircles() {
-    let start1Index = 0;
-    let start2Index = 0;
-    let minDistToUpperLeft = LARGE_DISTANCE;
-    let minDistToLowerRight = LARGE_DISTANCE;
-    
-    for (let i = 0; i < circles.length; i++) {
-        const circle = circles[i];
-        const distToUpperLeft = circle.distanceToPointSquared(0, 0);
-        const distToLowerRight = circle.distanceToPointSquared(GRID_SIZE, GRID_SIZE);
-        
-        if (distToUpperLeft < minDistToUpperLeft) {
-            minDistToUpperLeft = distToUpperLeft;
-            start1Index = i;
-        }
-        
-        if (distToLowerRight < minDistToLowerRight) {
-            minDistToLowerRight = distToLowerRight;
-            start2Index = i;
-        }
-    }
-    
-    circles[start1Index].isStart1 = true;
-    circles[start2Index].isStart2 = true;
-    
-    return { start1Index, start2Index };
-}
+let board;
+const view = new View(ctx, { GRID_SIZE, RENDER_RADIUS });
 
-function initializePieces() {
-    const pieces = [];
-    
-    for (let player = 1; player <= 2; player++) {
-        for (let i = 0; i < PIECES_PER_PLAYER; i++) {
-            const piece = new Piece(player, i);
-            pieces.push(piece);
-        }
-    }
-    
-    return pieces;
-}
 
 function render(view) {
-    view.setState(circles, connections, pieces, selectedPiece, highlightedStartCircle);
+    view.setState(board.circles, board.connections, board.pieces);
     view.render();
 }
 
@@ -275,7 +345,7 @@ function updateHoldingAreas() {
     player1Area.innerHTML = '';
     player2Area.innerHTML = '';
     
-    for (const piece of pieces) {
+    for (const piece of board.pieces) {
         if (piece.isRemoved || !piece.inHolding) {
             continue;
         }
@@ -289,8 +359,8 @@ function updateHoldingAreas() {
 }
 
 function getCircleAt(x, y) {
-    for (let i = 0; i < circles.length; i++) {
-        if (circles[i].contains(x, y)) {
+    for (let i = 0; i < board.circles.length; i++) {
+        if (board.circles[i].contains(x, y)) {
             return i;
         }
     }
@@ -302,17 +372,17 @@ function canMoveTo(piece, targetCircleIndex) {
         return false;
     }
     
-    const targetCircle = circles[targetCircleIndex];
+    const targetCircle = board.circles[targetCircleIndex];
     
     if (targetCircle.occupiedBy !== null) {
-        const occupyingPiece = pieces[targetCircle.occupiedBy];
+        const occupyingPiece = board.pieces[targetCircle.occupiedBy];
         if (occupyingPiece.player === piece.player) {
             return false;
         }
     }
     
     if (piece.inHolding) {
-        const startCircleIndex = findStartCircleIndex(piece.player);
+        const startCircleIndex = board.findStartCircleIndex(piece.player);
         if (startCircleIndex === -1) {
             return false;
         }
@@ -324,7 +394,7 @@ function canMoveTo(piece, targetCircleIndex) {
             return false;
         }
         
-        const neighbors = connections[startCircleIndex];
+        const neighbors = board.connections[startCircleIndex];
         return neighbors.includes(targetCircleIndex);
     }
     
@@ -337,7 +407,7 @@ function canMoveTo(piece, targetCircleIndex) {
         return false;
     }
     
-    const neighbors = connections[currentCircleIndex];
+    const neighbors = board.connections[currentCircleIndex];
     
     if (neighbors.includes(targetCircleIndex)) {
         return true;
@@ -351,13 +421,13 @@ function movePiece(piece, targetCircleIndex) {
     const player2PipCount = calculateTotalPipCount(2);
     console.log(`Pip count: 1=${player1PipCount} 2=${player2PipCount}`);
     
-    const targetCircle = circles[targetCircleIndex];
+    const targetCircle = board.circles[targetCircleIndex];
     
     if (targetCircle.occupiedBy !== null) {
-        const capturedPiece = pieces[targetCircle.occupiedBy];
+        const capturedPiece = board.pieces[targetCircle.occupiedBy];
         if (capturedPiece.player !== piece.player) {
             if (capturedPiece.circleIndex !== null) {
-                circles[capturedPiece.circleIndex].occupiedBy = null;
+                board.circles[capturedPiece.circleIndex].occupiedBy = null;
             }
             capturedPiece.circleIndex = null;
             capturedPiece.inHolding = true;
@@ -369,14 +439,14 @@ function movePiece(piece, targetCircleIndex) {
     
     if (isOpponentStart) {
         if (piece.circleIndex !== null) {
-            circles[piece.circleIndex].occupiedBy = null;
+            board.circles[piece.circleIndex].occupiedBy = null;
         }
         piece.circleIndex = null;
         piece.inHolding = false;
         piece.isRemoved = true;
         
-        if (selectedPiece === piece) {
-            selectedPiece = null;
+        if (view.selectedPiece === piece) {
+            view.selectedPiece = null;
         }
         
         if (piece.player === 1) {
@@ -398,12 +468,12 @@ function movePiece(piece, targetCircleIndex) {
         return true;
     } else {
         if (piece.circleIndex !== null) {
-            circles[piece.circleIndex].occupiedBy = null;
+            board.circles[piece.circleIndex].occupiedBy = null;
         }
         
         piece.circleIndex = targetCircleIndex;
         piece.inHolding = false;
-        circles[targetCircleIndex].occupiedBy = pieces.indexOf(piece);
+        board.circles[targetCircleIndex].occupiedBy = board.pieces.indexOf(piece);
         
         updateHoldingAreas();
         render(view);
@@ -412,65 +482,13 @@ function movePiece(piece, targetCircleIndex) {
     }
 }
 
-function findStartCircleIndex(player) {
-    if (player === 1) {
-        return circles.findIndex(c => c.isStart1);
-    }
-    return circles.findIndex(c => c.isStart2);
-}
-
-function calculateShortestPaths(targetCircleIndex) {
-    if (targetCircleIndex === -1) {
-        return null;
-    }
-    
-    const distances = new Array(circles.length).fill(-1);
-    const queue = [targetCircleIndex];
-    distances[targetCircleIndex] = 0;
-    
-    while (queue.length > 0) {
-        const currentIndex = queue.shift();
-        const currentDistance = distances[currentIndex];
-        
-        const neighbors = connections[currentIndex];
-        for (const neighborIndex of neighbors) {
-            if (distances[neighborIndex] === -1) {
-                distances[neighborIndex] = currentDistance + 1;
-                queue.push(neighborIndex);
-            }
-        }
-    }
-    
-    return distances;
-}
-
-function calculatePipCounts() {
-    const start1Index = findStartCircleIndex(1);
-    const start2Index = findStartCircleIndex(2);
-    
-    if (start1Index === -1 || start2Index === -1) {
-        return;
-    }
-    
-    const distancesToStart2 = calculateShortestPaths(start2Index);
-    const distancesToStart1 = calculateShortestPaths(start1Index);
-    
-    if (distancesToStart2 === null || distancesToStart1 === null) {
-        return;
-    }
-    
-    for (let i = 0; i < circles.length; i++) {
-        circles[i].pipCountForPlayer1 = distancesToStart2[i] === -1 ? null : distancesToStart2[i];
-        circles[i].pipCountForPlayer2 = distancesToStart1[i] === -1 ? null : distancesToStart1[i];
-    }
-}
 
 function calculateTotalPipCount(player) {
-    const piecesInHolding = pieces.filter(p => p.player === player && p.inHolding && !p.isRemoved).length;
+    const piecesInHolding = board.pieces.filter(p => p.player === player && p.inHolding && !p.isRemoved).length;
     const holdingPipCount = 10 * piecesInHolding;
     
     let boardPipCount = 0;
-    for (const piece of pieces) {
+    for (const piece of board.pieces) {
         if (piece.player !== player || piece.isRemoved || piece.inHolding) {
             continue;
         }
@@ -479,7 +497,7 @@ function calculateTotalPipCount(player) {
             continue;
         }
         
-        const circle = circles[piece.circleIndex];
+        const circle = board.circles[piece.circleIndex];
         if (player === 1 && circle.pipCountForPlayer1 !== null) {
             boardPipCount += circle.pipCountForPlayer1;
         } else if (player === 2 && circle.pipCountForPlayer2 !== null) {
@@ -493,16 +511,16 @@ function calculateTotalPipCount(player) {
 function getAllValidMoves(player) {
     const validMoves = [];
     
-    for (const piece of pieces) {
+    for (const piece of board.pieces) {
         if (piece.player !== player || piece.isRemoved) {
             continue;
         }
         
         if (piece.inHolding) {
-            const startCircleIndex = findStartCircleIndex(player);
+            const startCircleIndex = board.findStartCircleIndex(player);
             
             if (startCircleIndex !== -1) {
-                const neighbors = connections[startCircleIndex];
+                const neighbors = board.connections[startCircleIndex];
                 for (const neighborIndex of neighbors) {
                     if (canMoveTo(piece, neighborIndex)) {
                         validMoves.push({ piece, targetCircleIndex: neighborIndex });
@@ -511,7 +529,7 @@ function getAllValidMoves(player) {
             }
         } else {
             const currentCircleIndex = piece.circleIndex;
-            const neighbors = connections[currentCircleIndex];
+            const neighbors = board.connections[currentCircleIndex];
             
             for (const neighborIndex of neighbors) {
                 if (canMoveTo(piece, neighborIndex)) {
@@ -555,8 +573,8 @@ function updatePoints() {
 }
 
 function checkWinCondition() {
-    const player1PiecesRemaining = pieces.filter(p => p.player === 1 && !p.isRemoved).length;
-    const player2PiecesRemaining = pieces.filter(p => p.player === 2 && !p.isRemoved).length;
+    const player1PiecesRemaining = board.pieces.filter(p => p.player === 1 && !p.isRemoved).length;
+    const player2PiecesRemaining = board.pieces.filter(p => p.player === 2 && !p.isRemoved).length;
     
     if (player1PiecesRemaining === 0) {
         gameWon = true;
@@ -580,8 +598,8 @@ function switchPlayer() {
         return;
     }
     
-    selectedPiece = null;
-    highlightedStartCircle = null;
+    view.selectedPiece = null;
+    view.highlightedStartCircle = null;
     currentPlayer = currentPlayer === 1 ? 2 : 1;
     const indicator = document.getElementById('player-indicator');
     indicator.textContent = `Player ${currentPlayer}`;
@@ -605,32 +623,32 @@ function getPlayerForStartCircle(circle) {
 }
 
 function clearSelection() {
-    selectedPiece = null;
-    highlightedStartCircle = null;
+    view.selectedPiece = null;
+    view.highlightedStartCircle = null;
     updateHoldingAreas();
     render(view);
 }
 
 function hasPiecesInHolding(player) {
-    return pieces.some(p => p.player === player && p.inHolding && !p.isRemoved);
+    return board.pieces.some(p => p.player === player && p.inHolding && !p.isRemoved);
 }
 
 function getValidMovesFromStartCircle(startCircleIndex) {
     if (startCircleIndex === null) {
         return [];
     }
-    const startCircle = circles[startCircleIndex];
+    const startCircle = board.circles[startCircleIndex];
     const playerForStart = getPlayerForStartCircle(startCircle);
     if (playerForStart === null) {
         return [];
     }
-    const neighbors = connections[startCircleIndex];
+    const neighbors = board.connections[startCircleIndex];
     return neighbors.filter(neighborIndex => {
-        const neighbor = circles[neighborIndex];
+        const neighbor = board.circles[neighborIndex];
         if (neighbor.occupiedBy === null) {
             return true;
         }
-        const occupyingPiece = pieces[neighbor.occupiedBy];
+        const occupyingPiece = board.pieces[neighbor.occupiedBy];
         return occupyingPiece.player !== playerForStart;
     });
 }
@@ -639,43 +657,43 @@ function handleStartCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex
     const playerForStart = getPlayerForStartCircle(clickedCircle);
     
     if (playerForStart !== currentPlayer) {
-        highlightedStartCircle = null;
+        view.highlightedStartCircle = null;
         render(view);
         return;
     }
     
     if (clickedCircle.occupiedBy !== null) {
-        const piece = pieces[clickedCircle.occupiedBy];
+        const piece = board.pieces[clickedCircle.occupiedBy];
         if (piece.player === currentPlayer) {
-            selectedPiece = piece;
-            highlightedStartCircle = null;
+            view.selectedPiece = piece;
+            view.highlightedStartCircle = null;
             render(view);
         }
         return;
     }
     
     if (!hasPiecesInHolding(playerForStart)) {
-        highlightedStartCircle = null;
+        view.highlightedStartCircle = null;
         render(view);
         return;
     }
     
-    if (highlightedStartCircle === clickedCircleIndex) {
-        highlightedStartCircle = null;
+    if (view.highlightedStartCircle === clickedCircleIndex) {
+        view.highlightedStartCircle = null;
     } else {
-        highlightedStartCircle = clickedCircleIndex;
+        view.highlightedStartCircle = clickedCircleIndex;
     }
     render(view);
 }
 
 function handleCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex) {
-    if (highlightedStartCircle !== null) {
-        const validMoves = getValidMovesFromStartCircle(highlightedStartCircle);
+    if (view.highlightedStartCircle !== null) {
+        const validMoves = getValidMovesFromStartCircle(view.highlightedStartCircle);
         if (validMoves.includes(clickedCircleIndex)) {
-            const playerForStart = getPlayerForStartCircle(circles[highlightedStartCircle]);
-            const pieceInHolding = pieces.find(p => p.player === playerForStart && p.inHolding && !p.isRemoved);
+            const playerForStart = getPlayerForStartCircle(board.circles[view.highlightedStartCircle]);
+            const pieceInHolding = board.pieces.find(p => p.player === playerForStart && p.inHolding && !p.isRemoved);
             if (pieceInHolding) {
-                highlightedStartCircle = null;
+                view.highlightedStartCircle = null;
                 const pieceRemoved = movePiece(pieceInHolding, clickedCircleIndex);
                 if (!pieceRemoved) {
                     switchPlayer();
@@ -683,43 +701,43 @@ function handleCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex) {
                 return;
             }
         }
-        highlightedStartCircle = null;
+        view.highlightedStartCircle = null;
         render(view);
         return;
     }
     
     if (clickedCircle.occupiedBy !== null) {
-        const piece = pieces[clickedCircle.occupiedBy];
+        const piece = board.pieces[clickedCircle.occupiedBy];
         if (piece.player === currentPlayer) {
-            selectedPiece = piece;
-            highlightedStartCircle = null;
+            view.selectedPiece = piece;
+            view.highlightedStartCircle = null;
             render(view);
         }
     } else {
-        highlightedStartCircle = null;
+        view.highlightedStartCircle = null;
         render(view);
     }
 }
 
 function handleCircleClickWhenPieceSelected(clickedCircle, clickedCircleIndex) {
     if (clickedCircle.occupiedBy !== null) {
-        const piece = pieces[clickedCircle.occupiedBy];
-        if (piece === selectedPiece) {
+        const piece = board.pieces[clickedCircle.occupiedBy];
+        if (piece === view.selectedPiece) {
             clearSelection();
             return;
         }
         if (piece.player === currentPlayer) {
-            selectedPiece = piece;
-            highlightedStartCircle = null;
+            view.selectedPiece = piece;
+            view.highlightedStartCircle = null;
             render(view);
             return;
         }
     }
     
-    if (canMoveTo(selectedPiece, clickedCircleIndex)) {
-        const pieceRemoved = movePiece(selectedPiece, clickedCircleIndex);
-        selectedPiece = null;
-        highlightedStartCircle = null;
+    if (canMoveTo(view.selectedPiece, clickedCircleIndex)) {
+        const pieceRemoved = movePiece(view.selectedPiece, clickedCircleIndex);
+        view.selectedPiece = null;
+        view.highlightedStartCircle = null;
         if (!pieceRemoved) {
             switchPlayer();
         }
@@ -748,9 +766,9 @@ canvas.addEventListener('click', (e) => {
         return;
     }
     
-    const clickedCircle = circles[clickedCircleIndex];
+    const clickedCircle = board.circles[clickedCircleIndex];
     
-    if (selectedPiece === null) {
+    if (view.selectedPiece === null) {
         if (clickedCircle.isStart1 || clickedCircle.isStart2) {
             handleStartCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex);
             return;
@@ -763,23 +781,10 @@ canvas.addEventListener('click', (e) => {
     handleCircleClickWhenPieceSelected(clickedCircle, clickedCircleIndex);
 });
 
-
-function init() {
-    circles = generateCircles();
-    connections = buildConnections();
-    const { start1Index, start2Index } = findStartCircles();
-    pieces = initializePieces();
-    player1Points = 0;
-    player2Points = 0;
-    gameWon = false;
-    
-    calculatePipCounts();
+function init(boardParam) {
+    board = boardParam;
     
     updateHoldingAreas();
     updatePoints();
     render(view);
 }
-
-init();
-
-

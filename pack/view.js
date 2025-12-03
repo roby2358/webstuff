@@ -3,14 +3,14 @@ class View {
         this.ctx = ctx;
         this.GRID_SIZE = constants.GRID_SIZE;
         this.RENDER_RADIUS = constants.RENDER_RADIUS;
+        this.highlightedStartCircle = null;
+        this.selectedPiece = null;
     }
 
-    setState(circles, connections, pieces, selectedPiece, highlightedStartCircle) {
+    setState(circles, connections, pieces) {
         this.circles = circles;
         this.connections = connections;
         this.pieces = pieces;
-        this.selectedPiece = selectedPiece;
-        this.highlightedStartCircle = highlightedStartCircle;
     }
 
     getCircleFillColor(circle) {
