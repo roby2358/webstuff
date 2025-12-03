@@ -16,6 +16,9 @@ let pieces = [];
 let currentPlayer = 1;
 let selectedPiece = null;
 let highlightedStartCircle = null;
+let player1Points = 0;
+let player2Points = 0;
+let gameWon = false;
 
 const view = new View(ctx, { GRID_SIZE, RENDER_RADIUS });
 
@@ -97,6 +100,7 @@ class Piece {
         this.id = id;
         this.circleIndex = null;
         this.inHolding = true;
+        this.isRemoved = false;
     }
 }
 
@@ -270,7 +274,7 @@ function updateHoldingAreas() {
     player2Area.innerHTML = '';
     
     for (const piece of pieces) {
-        if (!piece.inHolding) {
+        if (piece.isRemoved || !piece.inHolding) {
             continue;
         }
         
@@ -299,20 +303,38 @@ function canMoveTo(piece, targetCircleIndex) {
     const targetCircle = circles[targetCircleIndex];
     
     if (targetCircle.occupiedBy !== null) {
-        return false;
+        const occupyingPiece = pieces[targetCircle.occupiedBy];
+        if (occupyingPiece.player === piece.player) {
+            return false;
+        }
     }
     
     if (piece.inHolding) {
+        const startCircleIndex = findStartCircleIndex(piece.player);
+        if (startCircleIndex === -1) {
+            return false;
+        }
+        
         if (piece.player === 1 && targetCircle.isStart1) {
-            return true;
+            return false;
         }
         if (piece.player === 2 && targetCircle.isStart2) {
-            return true;
+            return false;
         }
-        return false;
+        
+        const neighbors = connections[startCircleIndex];
+        return neighbors.includes(targetCircleIndex);
     }
     
     const currentCircleIndex = piece.circleIndex;
+    
+    if (piece.player === 1 && targetCircle.isStart1) {
+        return false;
+    }
+    if (piece.player === 2 && targetCircle.isStart2) {
+        return false;
+    }
+    
     const neighbors = connections[currentCircleIndex];
     
     if (neighbors.includes(targetCircleIndex)) {
@@ -323,16 +345,65 @@ function canMoveTo(piece, targetCircleIndex) {
 }
 
 function movePiece(piece, targetCircleIndex) {
-    if (piece.circleIndex !== null) {
-        circles[piece.circleIndex].occupiedBy = null;
+    const targetCircle = circles[targetCircleIndex];
+    
+    if (targetCircle.occupiedBy !== null) {
+        const capturedPiece = pieces[targetCircle.occupiedBy];
+        if (capturedPiece.player !== piece.player) {
+            if (capturedPiece.circleIndex !== null) {
+                circles[capturedPiece.circleIndex].occupiedBy = null;
+            }
+            capturedPiece.circleIndex = null;
+            capturedPiece.inHolding = true;
+        }
     }
     
-    piece.circleIndex = targetCircleIndex;
-    piece.inHolding = false;
-    circles[targetCircleIndex].occupiedBy = pieces.indexOf(piece);
+    const isOpponentStart = (piece.player === 1 && targetCircle.isStart2) || 
+                           (piece.player === 2 && targetCircle.isStart1);
     
-    updateHoldingAreas();
-    render(view);
+    if (isOpponentStart) {
+        if (piece.circleIndex !== null) {
+            circles[piece.circleIndex].occupiedBy = null;
+        }
+        piece.circleIndex = null;
+        piece.inHolding = false;
+        piece.isRemoved = true;
+        
+        if (selectedPiece === piece) {
+            selectedPiece = null;
+        }
+        
+        if (piece.player === 1) {
+            player1Points++;
+        } else {
+            player2Points++;
+        }
+        
+        updatePoints();
+        checkWinCondition();
+        
+        updateHoldingAreas();
+        render(view);
+        
+        if (!gameWon) {
+            switchPlayer();
+        }
+        
+        return true;
+    } else {
+        if (piece.circleIndex !== null) {
+            circles[piece.circleIndex].occupiedBy = null;
+        }
+        
+        piece.circleIndex = targetCircleIndex;
+        piece.inHolding = false;
+        circles[targetCircleIndex].occupiedBy = pieces.indexOf(piece);
+        
+        updateHoldingAreas();
+        render(view);
+        
+        return false;
+    }
 }
 
 function findStartCircleIndex(player) {
@@ -346,15 +417,20 @@ function getAllValidMoves(player) {
     const validMoves = [];
     
     for (const piece of pieces) {
-        if (piece.player !== player) {
+        if (piece.player !== player || piece.isRemoved) {
             continue;
         }
         
         if (piece.inHolding) {
             const startCircleIndex = findStartCircleIndex(player);
             
-            if (startCircleIndex !== -1 && canMoveTo(piece, startCircleIndex)) {
-                validMoves.push({ piece, targetCircleIndex: startCircleIndex });
+            if (startCircleIndex !== -1) {
+                const neighbors = connections[startCircleIndex];
+                for (const neighborIndex of neighbors) {
+                    if (canMoveTo(piece, neighborIndex)) {
+                        validMoves.push({ piece, targetCircleIndex: neighborIndex });
+                    }
+                }
             }
         } else {
             const currentCircleIndex = piece.circleIndex;
@@ -372,6 +448,10 @@ function getAllValidMoves(player) {
 }
 
 function aiMove() {
+    if (gameWon) {
+        return;
+    }
+    
     const validMoves = getAllValidMoves(2);
     
     if (validMoves.length === 0) {
@@ -380,11 +460,51 @@ function aiMove() {
     }
     
     const randomMove = validMoves[Math.floor(Math.random() * validMoves.length)];
-    movePiece(randomMove.piece, randomMove.targetCircleIndex);
-    switchPlayer();
+    const pieceRemoved = movePiece(randomMove.piece, randomMove.targetCircleIndex);
+    if (!pieceRemoved) {
+        switchPlayer();
+    }
+}
+
+function updatePoints() {
+    const player1PointsEl = document.getElementById('player1-points');
+    const player2PointsEl = document.getElementById('player2-points');
+    if (player1PointsEl) {
+        player1PointsEl.textContent = `Points: ${player1Points}`;
+    }
+    if (player2PointsEl) {
+        player2PointsEl.textContent = `Points: ${player2Points}`;
+    }
+}
+
+function checkWinCondition() {
+    const player1PiecesRemaining = pieces.filter(p => p.player === 1 && !p.isRemoved).length;
+    const player2PiecesRemaining = pieces.filter(p => p.player === 2 && !p.isRemoved).length;
+    
+    if (player1PiecesRemaining === 0) {
+        gameWon = true;
+        const indicator = document.getElementById('player-indicator');
+        indicator.textContent = 'Player 1 Wins!';
+        indicator.className = '';
+        return;
+    }
+    
+    if (player2PiecesRemaining === 0) {
+        gameWon = true;
+        const indicator = document.getElementById('player-indicator');
+        indicator.textContent = 'Player 2 Wins!';
+        indicator.className = 'player2';
+        return;
+    }
 }
 
 function switchPlayer() {
+    if (gameWon) {
+        return;
+    }
+    
+    selectedPiece = null;
+    highlightedStartCircle = null;
     currentPlayer = currentPlayer === 1 ? 2 : 1;
     const indicator = document.getElementById('player-indicator');
     indicator.textContent = `Player ${currentPlayer}`;
@@ -414,6 +534,30 @@ function clearSelection() {
     render(view);
 }
 
+function hasPiecesInHolding(player) {
+    return pieces.some(p => p.player === player && p.inHolding && !p.isRemoved);
+}
+
+function getValidMovesFromStartCircle(startCircleIndex) {
+    if (startCircleIndex === null) {
+        return [];
+    }
+    const startCircle = circles[startCircleIndex];
+    const playerForStart = getPlayerForStartCircle(startCircle);
+    if (playerForStart === null) {
+        return [];
+    }
+    const neighbors = connections[startCircleIndex];
+    return neighbors.filter(neighborIndex => {
+        const neighbor = circles[neighborIndex];
+        if (neighbor.occupiedBy === null) {
+            return true;
+        }
+        const occupyingPiece = pieces[neighbor.occupiedBy];
+        return occupyingPiece.player !== playerForStart;
+    });
+}
+
 function handleStartCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex) {
     const playerForStart = getPlayerForStartCircle(clickedCircle);
     
@@ -433,21 +577,40 @@ function handleStartCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex
         return;
     }
     
+    if (!hasPiecesInHolding(playerForStart)) {
+        highlightedStartCircle = null;
+        render(view);
+        return;
+    }
+    
     if (highlightedStartCircle === clickedCircleIndex) {
-        const pieceInHolding = pieces.find(p => p.player === playerForStart && p.inHolding);
-        if (pieceInHolding && canMoveTo(pieceInHolding, clickedCircleIndex)) {
-            movePiece(pieceInHolding, clickedCircleIndex);
-            highlightedStartCircle = null;
-            updateHoldingAreas();
-            switchPlayer();
-        }
+        highlightedStartCircle = null;
     } else {
         highlightedStartCircle = clickedCircleIndex;
     }
     render(view);
 }
 
-function handleCircleClickWhenNoSelection(clickedCircle) {
+function handleCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex) {
+    if (highlightedStartCircle !== null) {
+        const validMoves = getValidMovesFromStartCircle(highlightedStartCircle);
+        if (validMoves.includes(clickedCircleIndex)) {
+            const playerForStart = getPlayerForStartCircle(circles[highlightedStartCircle]);
+            const pieceInHolding = pieces.find(p => p.player === playerForStart && p.inHolding && !p.isRemoved);
+            if (pieceInHolding) {
+                highlightedStartCircle = null;
+                const pieceRemoved = movePiece(pieceInHolding, clickedCircleIndex);
+                if (!pieceRemoved) {
+                    switchPlayer();
+                }
+                return;
+            }
+        }
+        highlightedStartCircle = null;
+        render(view);
+        return;
+    }
+    
     if (clickedCircle.occupiedBy !== null) {
         const piece = pieces[clickedCircle.occupiedBy];
         if (piece.player === currentPlayer) {
@@ -477,16 +640,22 @@ function handleCircleClickWhenPieceSelected(clickedCircle, clickedCircleIndex) {
     }
     
     if (canMoveTo(selectedPiece, clickedCircleIndex)) {
-        movePiece(selectedPiece, clickedCircleIndex);
+        const pieceRemoved = movePiece(selectedPiece, clickedCircleIndex);
         selectedPiece = null;
         highlightedStartCircle = null;
-        switchPlayer();
+        if (!pieceRemoved) {
+            switchPlayer();
+        }
+    } else {
+        render(view);
     }
-    
-    render(view);
 }
 
 canvas.addEventListener('click', (e) => {
+    if (gameWon) {
+        return;
+    }
+    
     if (currentPlayer !== 1) {
         return;
     }
@@ -510,7 +679,7 @@ canvas.addEventListener('click', (e) => {
             return;
         }
         
-        handleCircleClickWhenNoSelection(clickedCircle);
+        handleCircleClickWhenNoSelection(clickedCircle, clickedCircleIndex);
         return;
     }
     
@@ -523,8 +692,12 @@ function init() {
     connections = buildConnections();
     const { start1Index, start2Index } = findStartCircles();
     pieces = initializePieces();
+    player1Points = 0;
+    player2Points = 0;
+    gameWon = false;
     
     updateHoldingAreas();
+    updatePoints();
     render(view);
 }
 

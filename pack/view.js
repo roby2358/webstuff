@@ -80,17 +80,29 @@ class View {
     }
 
     renderValidMovesForDraggedPiece() {
-        if (this.selectedPiece === null || this.selectedPiece.inHolding) {
+        if (this.selectedPiece === null || this.selectedPiece.inHolding || this.selectedPiece.isRemoved) {
             return;
         }
         
         const currentCircleIndex = this.selectedPiece.circleIndex;
+        if (currentCircleIndex === null) {
+            return;
+        }
+        
         const neighbors = this.connections[currentCircleIndex];
+        if (!neighbors) {
+            return;
+        }
         
         for (const neighborIndex of neighbors) {
             const neighbor = this.circles[neighborIndex];
             if (neighbor.occupiedBy === null) {
                 this.renderValidMoveHighlight(neighbor);
+            } else {
+                const occupyingPiece = this.pieces[neighbor.occupiedBy];
+                if (occupyingPiece.player !== this.selectedPiece.player) {
+                    this.renderValidMoveHighlight(neighbor);
+                }
             }
         }
     }
@@ -102,8 +114,21 @@ class View {
         
         const startCircle = this.circles[this.highlightedStartCircle];
         if (startCircle.occupiedBy === null) {
-            this.renderValidMoveHighlight(startCircle);
             this.renderCircleHighlight(startCircle);
+            
+            const playerForStart = startCircle.isStart1 ? 1 : 2;
+            const neighbors = this.connections[this.highlightedStartCircle];
+            for (const neighborIndex of neighbors) {
+                const neighbor = this.circles[neighborIndex];
+                if (neighbor.occupiedBy === null) {
+                    this.renderValidMoveHighlight(neighbor);
+                } else {
+                    const occupyingPiece = this.pieces[neighbor.occupiedBy];
+                    if (occupyingPiece.player !== playerForStart) {
+                        this.renderValidMoveHighlight(neighbor);
+                    }
+                }
+            }
         }
     }
 
@@ -119,10 +144,12 @@ class View {
             
             if (circle.occupiedBy !== null) {
                 const piece = this.pieces[circle.occupiedBy];
-                this.renderPieceOnCircle(circle, piece);
+                if (!piece.isRemoved) {
+                    this.renderPieceOnCircle(circle, piece);
+                }
             }
             
-            if (this.selectedPiece !== null && !this.selectedPiece.inHolding && this.selectedPiece.circleIndex === i) {
+            if (this.selectedPiece !== null && !this.selectedPiece.inHolding && !this.selectedPiece.isRemoved && this.selectedPiece.circleIndex === i) {
                 this.renderCircleHighlight(circle);
             }
         }
