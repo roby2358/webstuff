@@ -1,15 +1,17 @@
 # Circle Packing Game
 
-A turn-based strategy game where players move pieces across a network of connected circles.
+Turn-based strategy game: move pieces across connected circles to reach your opponent's start.
 
 ## How to Play
 
-- **Player 1 (Blue)**: Starts at the left-bottom circle
-- **Player 2 (Red)**: AI-controlled, starts at the right-top circle
-- Each player has 5 pieces in a holding area
-- On your turn: click a piece, then click a valid destination (connected neighbor or your start circle)
-- Pieces cannot move to occupied circles
+- **Player 1 (Blue)**: Human, starts near upper-left
+- **Player 2 (Red)**: AI, starts near lower-right
+- 5 pieces per player, start in holding
+- **From holding**: Click start circle, then click a connected neighbor to place
+- **On board**: Click piece, then click connected neighbor to move
+- Capture opponent pieces by moving onto them
+- Win by reaching opponent's start circle
 
 ## Running
 
-Open `index.html` in a modern web browser. No build step or dependencies required.
+Open `index.html` in a browser. No build step required.

@@ -13,13 +13,60 @@ class View {
         this.pieces = pieces;
     }
 
-    getCircleFillColor(circle) {
+    isBearInSpot(circleIndex) {
+        const circle = this.circles[circleIndex];
+        if (circle.isStart1 || circle.isStart2) {
+            return false;
+        }
+        
+        for (let i = 0; i < this.circles.length; i++) {
+            const otherCircle = this.circles[i];
+            if (otherCircle.isStart1 || otherCircle.isStart2) {
+                const neighbors = this.connections[i];
+                if (neighbors && neighbors.includes(circleIndex)) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+
+    getBearInSpotPlayer(circleIndex) {
+        for (let i = 0; i < this.circles.length; i++) {
+            const otherCircle = this.circles[i];
+            if (otherCircle.isStart1) {
+                const neighbors = this.connections[i];
+                if (neighbors && neighbors.includes(circleIndex)) {
+                    return 1;
+                }
+            }
+            if (otherCircle.isStart2) {
+                const neighbors = this.connections[i];
+                if (neighbors && neighbors.includes(circleIndex)) {
+                    return 2;
+                }
+            }
+        }
+        return null;
+    }
+
+    getCircleFillColor(circle, circleIndex) {
         if (circle.isStart1) {
             return '#4a90e2';
         }
         if (circle.isStart2) {
             return '#e24a4a';
         }
+        
+        const bearInPlayer = this.getBearInSpotPlayer(circleIndex);
+        if (bearInPlayer === 1) {
+            return '#add8e6';
+        }
+        if (bearInPlayer === 2) {
+            return '#ffc0cb';
+        }
+        
         return '#ddd';
     }
 
@@ -40,8 +87,8 @@ class View {
         }
     }
 
-    renderCircle(circle) {
-        this.ctx.fillStyle = this.getCircleFillColor(circle);
+    renderCircle(circle, circleIndex) {
+        this.ctx.fillStyle = this.getCircleFillColor(circle, circleIndex);
         this.ctx.beginPath();
         this.ctx.arc(circle.x, circle.y, this.RENDER_RADIUS, 0, Math.PI * 2);
         this.ctx.fill();
@@ -140,7 +187,7 @@ class View {
         for (let i = 0; i < this.circles.length; i++) {
             const circle = this.circles[i];
             
-            this.renderCircle(circle);
+            this.renderCircle(circle, i);
             
             if (circle.occupiedBy !== null) {
                 const piece = this.pieces[circle.occupiedBy];
